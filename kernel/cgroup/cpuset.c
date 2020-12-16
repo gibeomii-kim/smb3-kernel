@@ -390,7 +390,7 @@ static void guarantee_online_cpus(struct cpuset *cs, struct cpumask *pmask)
 			 * The top cpuset doesn't have any online cpu as a
 			 * consequence of a race between cpuset_hotplug_work
 			 * and cpu hotplug notifier.  But we know the top
-			 * cpuset's effective_cpus is on its way to to be
+			 * cpuset's effective_cpus is on its way to be
 			 * identical to cpu_online_mask.
 			 */
 			cpumask_copy(pmask, cpu_online_mask);
@@ -1655,7 +1655,7 @@ static void update_tasks_nodemask(struct cpuset *cs)
 	guarantee_online_mems(cs, &newmems);
 
 	/*
-	 * The mpol_rebind_mm() call takes mmap_sem, which we couldn't
+	 * The mpol_rebind_mm() call takes mmap_lock, which we couldn't
 	 * take while holding tasklist_lock.  Forks can happen - the
 	 * mpol_dup() cpuset_being_rebound check will catch such forks,
 	 * and rebind their vma mempolicies too.  Because we still hold
@@ -1760,7 +1760,7 @@ static void update_nodemasks_hier(struct cpuset *cs, nodemask_t *new_mems)
  *
  * Call with cpuset_mutex held. May take callback_lock during call.
  * Will take tasklist_lock, scan tasklist for tasks in cpuset cs,
- * lock each such tasks mm->mmap_sem, scan its vma's and rebind
+ * lock each such tasks mm->mmap_lock, scan its vma's and rebind
  * their mempolicies to the cpusets new mems_allowed.
  */
 static int update_nodemask(struct cpuset *cs, struct cpuset *trialcs,

@@ -71,6 +71,8 @@ bool enable_oplocks = true;
 bool linuxExtEnabled = true;
 bool lookupCacheEnabled = true;
 bool disable_legacy_dialects; /* false by default */
+bool enable_gcm_256;  /* false by default, change when more servers support it */
+bool require_gcm_256; /* false by default */
 unsigned int global_secflags = CIFSSEC_DEF;
 /* unsigned int ntlmv2_support = 0; */
 unsigned int sign_CIFS_PDUs = 1;
@@ -103,6 +105,12 @@ MODULE_PARM_DESC(slow_rsp_threshold, "Amount of time (in seconds) to wait "
 
 module_param(enable_oplocks, bool, 0644);
 MODULE_PARM_DESC(enable_oplocks, "Enable or disable oplocks. Default: y/Y/1");
+
+module_param(enable_gcm_256, bool, 0644);
+MODULE_PARM_DESC(enable_gcm_256, "Enable requesting strongest (256 bit) GCM encryption. Default: n/N/0");
+
+module_param(require_gcm_256, bool, 0644);
+MODULE_PARM_DESC(require_gcm_256, "Require strongest (256 bit) GCM encryption. Default: n/N/0");
 
 module_param(disable_legacy_dialects, bool, 0644);
 MODULE_PARM_DESC(disable_legacy_dialects, "To improve security it may be "
@@ -534,6 +542,8 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 		seq_puts(s, ",signloosely");
 	if (tcon->nocase)
 		seq_puts(s, ",nocase");
+	if (tcon->nodelete)
+		seq_puts(s, ",nodelete");
 	if (tcon->local_lease)
 		seq_puts(s, ",locallease");
 	if (tcon->retry)
@@ -621,7 +631,7 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 	seq_printf(s, ",actimeo=%lu", cifs_sb->actimeo / HZ);
 
 	if (tcon->ses->chan_max > 1)
-		seq_printf(s, ",multichannel,max_channel=%zu",
+		seq_printf(s, ",multichannel,max_channels=%zu",
 			   tcon->ses->chan_max);
 
 	return 0;

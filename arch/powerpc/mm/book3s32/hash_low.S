@@ -14,9 +14,10 @@
  *  hash table, so this file is not used on them.)
  */
 
+#include <linux/pgtable.h>
+#include <linux/init.h>
 #include <asm/reg.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
 #include <asm/cputable.h>
 #include <asm/ppc_asm.h>
 #include <asm/thread_info.h>
@@ -35,7 +36,7 @@ mmu_hash_lock:
 /*
  * Load a PTE into the hash table, if possible.
  * The address is in r4, and r3 contains an access flag:
- * _PAGE_RW (0x002) if a write.
+ * _PAGE_RW (0x400) if a write.
  * r9 contains the SRR1 value, from which we use the MSR_PR bit.
  * SPRG_THREAD contains the physical address of the current task's thread.
  *
@@ -62,14 +63,14 @@ _GLOBAL(hash_page)
 	isync
 #endif
 	/* Get PTE (linux-style) and check access */
-	lis	r0,KERNELBASE@h		/* check if kernel address */
+	lis	r0, TASK_SIZE@h		/* check if kernel address */
 	cmplw	0,r4,r0
 	ori	r3,r3,_PAGE_USER|_PAGE_PRESENT /* test low addresses as user */
 	mfspr	r5, SPRN_SPRG_PGDIR	/* phys page-table root */
 	blt+	112f			/* assume user more likely */
 	lis	r5, (swapper_pg_dir - PAGE_OFFSET)@ha	/* if kernel address, use */
 	addi	r5 ,r5 ,(swapper_pg_dir - PAGE_OFFSET)@l	/* kernel page table */
-	rlwimi	r3,r9,32-14,31,31	/* MSR_PR -> _PAGE_USER */
+	rlwimi	r3,r9,32-12,29,29	/* MSR_PR -> _PAGE_USER */
 112:
 #ifndef CONFIG_PTE_64BIT
 	rlwimi	r5,r4,12,20,29		/* insert top 10 bits of address */
@@ -81,7 +82,7 @@ _GLOBAL(hash_page)
 	rlwinm.	r8,r8,0,0,20		/* extract pt base address */
 #endif
 #ifdef CONFIG_SMP
-	beq-	hash_page_out		/* return if no mapping */
+	beq-	.Lhash_page_out		/* return if no mapping */
 #else
 	/* XXX it seems like the 601 will give a machine fault on the
 	   rfi if its alignment is wrong (bottom 4 bits of address are
@@ -94,7 +95,7 @@ _GLOBAL(hash_page)
 #else
 	rlwimi	r8,r4,23,20,28		/* compute pte address */
 #endif
-	rlwinm	r0,r3,6,24,24		/* _PAGE_RW access -> _PAGE_DIRTY */
+	rlwinm	r0,r3,32-3,24,24	/* _PAGE_RW access -> _PAGE_DIRTY */
 	ori	r0,r0,_PAGE_ACCESSED|_PAGE_HASHPTE
 
 	/*
@@ -109,11 +110,11 @@ _GLOBAL(hash_page)
 #if (PTE_FLAGS_OFFSET != 0)
 	addi	r8,r8,PTE_FLAGS_OFFSET
 #endif
-retry:
+.Lretry:
 	lwarx	r6,0,r8			/* get linux-style pte, flag word */
 	andc.	r5,r3,r6		/* check access & ~permission */
 #ifdef CONFIG_SMP
-	bne-	hash_page_out		/* return if access not permitted */
+	bne-	.Lhash_page_out		/* return if access not permitted */
 #else
 	bnelr-
 #endif
@@ -128,7 +129,7 @@ retry:
 #endif /* CONFIG_SMP */
 #endif /* CONFIG_PTE_64BIT */
 	stwcx.	r5,0,r8			/* attempt to update PTE */
-	bne-	retry			/* retry if someone got there first */
+	bne-	.Lretry			/* retry if someone got there first */
 
 	mfsrin	r3,r4			/* get segment reg for segment */
 #ifndef CONFIG_VMAP_STACK
@@ -156,13 +157,14 @@ retry:
 #endif
 
 #ifdef CONFIG_SMP
-hash_page_out:
+.Lhash_page_out:
 	eieio
 	lis	r8, (mmu_hash_lock - PAGE_OFFSET)@ha
 	li	r0,0
 	stw	r0, (mmu_hash_lock - PAGE_OFFSET)@l(r8)
 	blr
 #endif /* CONFIG_SMP */
+_ASM_NOKPROBE_SYMBOL(hash_page)
 
 /*
  * Add an entry for a particular page to the hash table.
@@ -198,11 +200,9 @@ _GLOBAL(add_hash_page)
 	 * covered by a BAT).  -- paulus
 	 */
 	mfmsr	r9
-	SYNC
 	rlwinm	r0,r9,0,17,15		/* clear bit 16 (MSR_EE) */
 	rlwinm	r0,r0,0,28,26		/* clear MSR_DR */
 	mtmsr	r0
-	SYNC_601
 	isync
 
 #ifdef CONFIG_SMP
@@ -261,12 +261,12 @@ _GLOBAL(add_hash_page)
 
 	/* reenable interrupts and DR */
 	mtmsr	r9
-	SYNC_601
 	isync
 
 	lwz	r0,4(r1)
 	mtlr	r0
 	blr
+_ASM_NOKPROBE_SYMBOL(add_hash_page)
 
 /*
  * This routine adds a hardware PTE to the hash table.
@@ -285,9 +285,9 @@ _GLOBAL(add_hash_page)
  *
  * For speed, 4 of the instructions get patched once the size and
  * physical address of the hash table are known.  These definitions
- * of Hash_base and Hash_bits below are just an example.
+ * of Hash_base and Hash_bits below are for the early hash table.
  */
-Hash_base = 0xc0180000
+Hash_base = early_hash
 Hash_bits = 12				/* e.g. 256kB hash table */
 Hash_msk = (((1 << Hash_bits) - 1) * 64)
 
@@ -308,11 +308,14 @@ Hash_msk = (((1 << Hash_bits) - 1) * 64)
 #define HASH_LEFT	31-(LG_PTEG_SIZE+Hash_bits-1)
 #define HASH_RIGHT	31-LG_PTEG_SIZE
 
+__REF
 _GLOBAL(create_hpte)
 	/* Convert linux-style PTE (r5) to low word of PPC-style PTE (r8) */
+	rlwinm	r8,r5,32-9,30,30	/* _PAGE_RW -> PP msb */
 	rlwinm	r0,r5,32-6,30,30	/* _PAGE_DIRTY -> PP msb */
-	and	r8,r5,r0		/* writable if _RW & _DIRTY */
-	rlwimi	r5,r5,1,30,30		/* _PAGE_USER -> PP msb */
+	and	r8,r8,r0		/* writable if _RW & _DIRTY */
+	rlwimi	r5,r5,32-1,30,30	/* _PAGE_USER -> PP msb */
+	rlwimi	r5,r5,32-2,31,31	/* _PAGE_USER -> PP lsb */
 	ori	r8,r8,0xe04		/* clear out reserved bits */
 	andc	r8,r5,r8		/* PP = user? (rw&dirty? 1: 3): 0 */
 BEGIN_FTR_SECTION
@@ -358,7 +361,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_NEED_COHERENT)
 1:	LDPTEu	r6,HPTE_SIZE(r4)	/* get next PTE */
 	CMPPTE	0,r6,r5
 	bdnzf	2,1b			/* loop while ctr != 0 && !cr0.eq */
-	beq+	found_slot
+	beq+	.Lfound_slot
 
 	patch_site	0f, patch__hash_page_B
 	/* Search the secondary PTEG for a matching PTE */
@@ -370,7 +373,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_NEED_COHERENT)
 2:	LDPTEu	r6,HPTE_SIZE(r4)
 	CMPPTE	0,r6,r5
 	bdnzf	2,2b
-	beq+	found_slot
+	beq+	.Lfound_slot
 	xori	r5,r5,PTE_H		/* clear H bit again */
 
 	/* Search the primary PTEG for an empty slot */
@@ -379,7 +382,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_NEED_COHERENT)
 1:	LDPTEu	r6,HPTE_SIZE(r4)	/* get next PTE */
 	TST_V(r6)			/* test valid bit */
 	bdnzf	2,1b			/* loop while ctr != 0 && !cr0.eq */
-	beq+	found_empty
+	beq+	.Lfound_empty
 
 	/* update counter of times that the primary PTEG is full */
 	lis	r4, (primary_pteg_full - PAGE_OFFSET)@ha
@@ -397,7 +400,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_NEED_COHERENT)
 2:	LDPTEu	r6,HPTE_SIZE(r4)
 	TST_V(r6)
 	bdnzf	2,2b
-	beq+	found_empty
+	beq+	.Lfound_empty
 	xori	r5,r5,PTE_H		/* clear H bit again */
 
 	/*
@@ -435,9 +438,9 @@ END_FTR_SECTION_IFCLR(CPU_FTR_NEED_COHERENT)
 
 #ifndef CONFIG_SMP
 	/* Store PTE in PTEG */
-found_empty:
+.Lfound_empty:
 	STPTE	r5,0(r4)
-found_slot:
+.Lfound_slot:
 	STPTE	r8,HPTE_SIZE/2(r4)
 
 #else /* CONFIG_SMP */
@@ -458,8 +461,8 @@ found_slot:
  * We do however have to make sure that the PTE is never in an invalid
  * state with the V bit set.
  */
-found_empty:
-found_slot:
+.Lfound_empty:
+.Lfound_slot:
 	CLR_V(r5,r0)		/* clear V (valid) bit in PTE */
 	STPTE	r5,0(r4)
 	sync
@@ -472,6 +475,8 @@ found_slot:
 
 	sync		/* make sure pte updates get to memory */
 	blr
+	.previous
+_ASM_NOKPROBE_SYMBOL(create_hpte)
 
 	.section .bss
 	.align	2
@@ -491,6 +496,7 @@ htab_hash_searches:
  *
  * We assume that there is a hash table in use (Hash != 0).
  */
+__REF
 _GLOBAL(flush_hash_pages)
 	/*
 	 * We disable interrupts here, even on UP, because we want
@@ -501,11 +507,9 @@ _GLOBAL(flush_hash_pages)
 	 * covered by a BAT).  -- paulus
 	 */
 	mfmsr	r10
-	SYNC
 	rlwinm	r0,r10,0,17,15		/* clear bit 16 (MSR_EE) */
 	rlwinm	r0,r0,0,28,26		/* clear MSR_DR */
 	mtmsr	r0
-	SYNC_601
 	isync
 
 	/* First find a PTE in the range that has _PAGE_HASHPTE set */
@@ -564,7 +568,7 @@ _GLOBAL(flush_hash_pages)
 33:	lwarx	r8,0,r5			/* fetch the pte flags word */
 	andi.	r0,r8,_PAGE_HASHPTE
 	beq	8f			/* done if HASHPTE is already clear */
-	rlwinm	r8,r8,0,~_PAGE_HASHPTE	/* clear HASHPTE bit */
+	rlwinm	r8,r8,0,31,29		/* clear HASHPTE bit */
 	stwcx.	r8,0,r5			/* update the pte */
 	bne-	33b
 
@@ -624,10 +628,11 @@ _GLOBAL(flush_hash_pages)
 #endif
 
 19:	mtmsr	r10
-	SYNC_601
 	isync
 	blr
+	.previous
 EXPORT_SYMBOL(flush_hash_pages)
+_ASM_NOKPROBE_SYMBOL(flush_hash_pages)
 
 /*
  * Flush an entry from the TLB
@@ -637,11 +642,9 @@ _GLOBAL(_tlbie)
 	lwz	r8,TASK_CPU(r2)
 	oris	r8,r8,11
 	mfmsr	r10
-	SYNC
 	rlwinm	r0,r10,0,17,15		/* clear bit 16 (MSR_EE) */
 	rlwinm	r0,r0,0,28,26		/* clear DR */
 	mtmsr	r0
-	SYNC_601
 	isync
 	lis	r9,mmu_hash_lock@h
 	ori	r9,r9,mmu_hash_lock@l
@@ -658,13 +661,13 @@ _GLOBAL(_tlbie)
 	li	r0,0
 	stw	r0,0(r9)		/* clear mmu_hash_lock */
 	mtmsr	r10
-	SYNC_601
 	isync
 #else /* CONFIG_SMP */
 	tlbie	r3
 	sync
 #endif /* CONFIG_SMP */
 	blr
+_ASM_NOKPROBE_SYMBOL(_tlbie)
 
 /*
  * Flush the entire TLB. 603/603e only
@@ -674,11 +677,9 @@ _GLOBAL(_tlbia)
 	lwz	r8,TASK_CPU(r2)
 	oris	r8,r8,10
 	mfmsr	r10
-	SYNC
 	rlwinm	r0,r10,0,17,15		/* clear bit 16 (MSR_EE) */
 	rlwinm	r0,r0,0,28,26		/* clear DR */
 	mtmsr	r0
-	SYNC_601
 	isync
 	lis	r9,mmu_hash_lock@h
 	ori	r9,r9,mmu_hash_lock@l
@@ -702,7 +703,7 @@ _GLOBAL(_tlbia)
 	li	r0,0
 	stw	r0,0(r9)		/* clear mmu_hash_lock */
 	mtmsr	r10
-	SYNC_601
 	isync
 #endif /* CONFIG_SMP */
 	blr
+_ASM_NOKPROBE_SYMBOL(_tlbia)

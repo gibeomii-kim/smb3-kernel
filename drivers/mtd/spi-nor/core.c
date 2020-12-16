@@ -499,7 +499,7 @@ int spi_nor_xread_sr(struct spi_nor *nor, u8 *sr)
  * the flash is ready for new commands.
  * @nor:	pointer to 'struct spi_nor'.
  *
- * Return: 0 on success, -errno otherwise.
+ * Return: 1 if ready, 0 if not ready, -errno on errors.
  */
 static int spi_nor_xsr_ready(struct spi_nor *nor)
 {
@@ -542,7 +542,7 @@ static void spi_nor_clear_sr(struct spi_nor *nor)
  * for new commands.
  * @nor:	pointer to 'struct spi_nor'.
  *
- * Return: 0 on success, -errno otherwise.
+ * Return: 1 if ready, 0 if not ready, -errno on errors.
  */
 static int spi_nor_sr_ready(struct spi_nor *nor)
 {
@@ -606,7 +606,7 @@ static void spi_nor_clear_fsr(struct spi_nor *nor)
  * ready for new commands.
  * @nor:	pointer to 'struct spi_nor'.
  *
- * Return: 0 on success, -errno otherwise.
+ * Return: 1 if ready, 0 if not ready, -errno on errors.
  */
 static int spi_nor_fsr_ready(struct spi_nor *nor)
 {
@@ -640,14 +640,14 @@ static int spi_nor_fsr_ready(struct spi_nor *nor)
 		return -EIO;
 	}
 
-	return nor->bouncebuf[0] & FSR_READY;
+	return !!(nor->bouncebuf[0] & FSR_READY);
 }
 
 /**
  * spi_nor_ready() - Query the flash to see if it is ready for new commands.
  * @nor:	pointer to 'struct spi_nor'.
  *
- * Return: 0 on success, -errno otherwise.
+ * Return: 1 if ready, 0 if not ready, -errno on errors.
  */
 static int spi_nor_ready(struct spi_nor *nor)
 {
@@ -2469,7 +2469,7 @@ static int spi_nor_select_read(struct spi_nor *nor,
 	nor->read_proto = read->proto;
 
 	/*
-	 * In the spi-nor framework, we don't need to make the difference
+	 * In the SPI NOR framework, we don't need to make the difference
 	 * between mode clock cycles and wait state clock cycles.
 	 * Indeed, the value of the mode clock cycles is used by a QSPI
 	 * flash memory to know whether it should enter or leave its 0-4-4
@@ -2675,7 +2675,7 @@ static int spi_nor_setup(struct spi_nor *nor,
 /**
  * spi_nor_manufacturer_init_params() - Initialize the flash's parameters and
  * settings based on MFR register and ->default_init() hook.
- * @nor:	pointer to a 'struct spi-nor'.
+ * @nor:	pointer to a 'struct spi_nor'.
  */
 static void spi_nor_manufacturer_init_params(struct spi_nor *nor)
 {
@@ -2690,7 +2690,7 @@ static void spi_nor_manufacturer_init_params(struct spi_nor *nor)
 /**
  * spi_nor_sfdp_init_params() - Initialize the flash's parameters and settings
  * based on JESD216 SFDP standard.
- * @nor:	pointer to a 'struct spi-nor'.
+ * @nor:	pointer to a 'struct spi_nor'.
  *
  * The method has a roll-back mechanism: in case the SFDP parsing fails, the
  * legacy flash parameters and settings will be restored.
@@ -2701,18 +2701,17 @@ static void spi_nor_sfdp_init_params(struct spi_nor *nor)
 
 	memcpy(&sfdp_params, nor->params, sizeof(sfdp_params));
 
-	if (spi_nor_parse_sfdp(nor, &sfdp_params)) {
+	if (spi_nor_parse_sfdp(nor, nor->params)) {
+		memcpy(nor->params, &sfdp_params, sizeof(*nor->params));
 		nor->addr_width = 0;
 		nor->flags &= ~SNOR_F_4B_OPCODES;
-	} else {
-		memcpy(nor->params, &sfdp_params, sizeof(*nor->params));
 	}
 }
 
 /**
  * spi_nor_info_init_params() - Initialize the flash's parameters and settings
  * based on nor->info data.
- * @nor:	pointer to a 'struct spi-nor'.
+ * @nor:	pointer to a 'struct spi_nor'.
  */
 static void spi_nor_info_init_params(struct spi_nor *nor)
 {
@@ -2841,7 +2840,7 @@ static void spi_nor_late_init_params(struct spi_nor *nor)
 
 /**
  * spi_nor_init_params() - Initialize the flash's parameters and settings.
- * @nor:	pointer to a 'struct spi-nor'.
+ * @nor:	pointer to a 'struct spi_nor'.
  *
  * The flash parameters and settings are initialized based on a sequence of
  * calls that are ordered by priority:
@@ -3009,11 +3008,13 @@ static int spi_nor_set_addr_width(struct spi_nor *nor)
 		/* already configured from SFDP */
 	} else if (nor->info->addr_width) {
 		nor->addr_width = nor->info->addr_width;
-	} else if (nor->mtd.size > 0x1000000) {
-		/* enable 4-byte addressing if the device exceeds 16MiB */
-		nor->addr_width = 4;
 	} else {
 		nor->addr_width = 3;
+	}
+
+	if (nor->addr_width == 3 && nor->mtd.size > 0x1000000) {
+		/* enable 4-byte addressing if the device exceeds 16MiB */
+		nor->addr_width = 4;
 	}
 
 	if (nor->addr_width > SPI_NOR_MAX_ADDR_WIDTH) {
@@ -3126,7 +3127,7 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 	/*
 	 * Make sure the XSR_RDY flag is set before calling
 	 * spi_nor_wait_till_ready(). Xilinx S3AN share MFR
-	 * with Atmel spi-nor
+	 * with Atmel SPI NOR.
 	 */
 	if (info->flags & SPI_NOR_XSR_RDY)
 		nor->flags |=  SNOR_F_READY_XSR_RDY;

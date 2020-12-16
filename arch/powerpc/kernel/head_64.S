@@ -300,9 +300,6 @@ _GLOBAL(fsl_secondary_thread_init)
 	rlwimi	r3, r3, 30, 2, 30
 	mtspr	SPRN_PIR, r3
 1:
-#endif
-
-_GLOBAL(generic_secondary_thread_init)
 	mr	r24,r3
 
 	/* turn on 64-bit mode */
@@ -312,12 +309,12 @@ _GLOBAL(generic_secondary_thread_init)
 	bl	relative_toc
 	tovirt(r2,r2)
 
-#ifdef CONFIG_PPC_BOOK3E
 	/* Book3E initialization */
 	mr	r3,r24
 	bl	book3e_secondary_thread_init
-#endif
 	b	generic_secondary_common_init
+
+#endif /* CONFIG_PPC_BOOK3E */
 
 /*
  * On pSeries and most other platforms, secondary processors spin
@@ -947,15 +944,8 @@ start_here_multiplatform:
 	std	r0,0(r4)
 #endif
 
-	/* The following gets the stack set up with the regs */
-	/* pointing to the real addr of the kernel stack.  This is   */
-	/* all done to support the C function call below which sets  */
-	/* up the htab.  This is done because we have relocated the  */
-	/* kernel but are still running in real mode. */
-
-	LOAD_REG_ADDR(r3,init_thread_union)
-
 	/* set up a stack pointer */
+	LOAD_REG_ADDR(r3,init_thread_union)
 	LOAD_REG_IMMEDIATE(r1,THREAD_SIZE)
 	add	r1,r3,r1
 	li	r0,0

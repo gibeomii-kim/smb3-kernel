@@ -30,6 +30,7 @@ struct proc_ops {
 	unsigned int proc_flags;
 	int	(*proc_open)(struct inode *, struct file *);
 	ssize_t	(*proc_read)(struct file *, char __user *, size_t, loff_t *);
+	ssize_t (*proc_read_iter)(struct kiocb *, struct iov_iter *);
 	ssize_t	(*proc_write)(struct file *, const char __user *, size_t, loff_t *);
 	loff_t	(*proc_lseek)(struct file *, loff_t, int);
 	int	(*proc_release)(struct inode *, struct file *);
@@ -41,6 +42,34 @@ struct proc_ops {
 	int	(*proc_mmap)(struct file *, struct vm_area_struct *);
 	unsigned long (*proc_get_unmapped_area)(struct file *, unsigned long, unsigned long, unsigned long, unsigned long);
 } __randomize_layout;
+
+/* definitions for hide_pid field */
+enum proc_hidepid {
+	HIDEPID_OFF	  = 0,
+	HIDEPID_NO_ACCESS = 1,
+	HIDEPID_INVISIBLE = 2,
+	HIDEPID_NOT_PTRACEABLE = 4, /* Limit pids to only ptraceable pids */
+};
+
+/* definitions for proc mount option pidonly */
+enum proc_pidonly {
+	PROC_PIDONLY_OFF = 0,
+	PROC_PIDONLY_ON  = 1,
+};
+
+struct proc_fs_info {
+	struct pid_namespace *pid_ns;
+	struct dentry *proc_self;        /* For /proc/self */
+	struct dentry *proc_thread_self; /* For /proc/thread-self */
+	kgid_t pid_gid;
+	enum proc_hidepid hide_pid;
+	enum proc_pidonly pidonly;
+};
+
+static inline struct proc_fs_info *proc_sb_info(struct super_block *sb)
+{
+	return sb->s_fs_info;
+}
 
 #ifdef CONFIG_PROC_FS
 
@@ -104,6 +133,10 @@ struct proc_dir_entry *proc_create_net_single_write(const char *name, umode_t mo
 						    proc_write_t write,
 						    void *data);
 extern struct pid *tgid_pidfd_to_pid(const struct file *file);
+
+struct bpf_iter_aux_info;
+extern int bpf_iter_init_seq_net(void *priv_data, struct bpf_iter_aux_info *aux);
+extern void bpf_iter_fini_seq_net(void *priv_data);
 
 #ifdef CONFIG_PROC_PID_ARCH_STATUS
 /*
@@ -174,9 +207,11 @@ int open_related_ns(struct ns_common *ns,
 		   struct ns_common *(*get_ns)(struct ns_common *ns));
 
 /* get the associated pid namespace for a file in procfs */
-static inline struct pid_namespace *proc_pid_ns(const struct inode *inode)
+static inline struct pid_namespace *proc_pid_ns(struct super_block *sb)
 {
-	return inode->i_sb->s_fs_info;
+	return proc_sb_info(sb)->pid_ns;
 }
+
+bool proc_ns_file(const struct file *file);
 
 #endif /* _LINUX_PROC_FS_H */
