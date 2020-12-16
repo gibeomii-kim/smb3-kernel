@@ -20,9 +20,10 @@ jobs:
         make
         make install
         cd ..
+        ls
     - name: configure
       run: |
-        yes "" | make oldconfig > /dev/null
+        yes "" | make oldconfig 
         echo 'CONFIG_SMB_SERVER=m' >> .config
         echo 'CONFIG_SMB_SERVER_SMBDIRECT=y' >> .config
         echo 'CONFIG_SMB_SERVER_KERBEROS5=y' >> .config
