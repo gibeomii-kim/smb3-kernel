@@ -27,4 +27,4 @@ jobs:
         echo 'CONFIG_SMB_SERVER_SMBDIRECT=y' >> .config
         echo 'CONFIG_SMB_SERVER_KERBEROS5=y' >> .config
     - name: make
-      run: make fs/cifsd/ksmbd.ko C=1 CHECK=/bin/sparse CF=-D__CHECK_ENDIAN__
+      run: make fs/cifsd/ksmbd.ko C=1 CHECK=/home/runner/bin/sparse CF=-D__CHECK_ENDIAN__
