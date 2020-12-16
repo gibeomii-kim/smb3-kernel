@@ -1,0 +1,30 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ cifsd-fixes ]
+  pull_request:
+    branches: [ cifsd-fixes ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: sparse
+      run: |
+        git clone https://git.kernel.org/pub/scm/devel/sparse/sparse.git
+        cd sparse
+        make
+        make install
+        cd ..
+    - name: configure
+      run: |
+        yes "" | make oldconfig > /dev/null
+        echo 'CONFIG_SMB_SERVER=m' >> .config
+        echo 'CONFIG_SMB_SERVER_SMBDIRECT=y' >> .config
+        echo 'CONFIG_SMB_SERVER_KERBEROS5=y' >> .config
+    - name: make
+      run: make fs/cifsd/ksmbd.ko C=1 CHECK=/bin/sparse CF=-D__CHECK_ENDIAN__
