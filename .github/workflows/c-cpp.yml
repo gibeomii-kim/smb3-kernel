@@ -4,9 +4,6 @@ on:
   push:
     branches: 
       - cifsd-fixes
-  pull_request:
-    branches: 
-      - cifsd-fixes
 
 jobs:
   build:
