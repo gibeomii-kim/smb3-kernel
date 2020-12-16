@@ -2,9 +2,11 @@ name: C/C++ CI
 
 on:
   push:
-    branches: [ cifsd-fixes ]
+    branches: 
+      - cifsd-fixes
   pull_request:
-    branches: [ cifsd-fixes ]
+    branches: 
+      - cifsd-fixes
 
 jobs:
   build:
