@@ -46,7 +46,9 @@ static void __wbuf(struct ksmbd_work *work, void **req, void **rsp)
 		*rsp = RESPONSE_BUF(work);
 	}
 }
-
+asd
+asd
+asd
 #define WORK_BUFFERS(w, rq, rs)	__wbuf((w), (void **)&(rq), (void **)&(rs))
 
 /**
